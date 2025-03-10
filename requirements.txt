@@ -1,0 +1,4 @@
+gitpython
+uvicorn
+fastapi
+pydantic
