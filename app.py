@@ -22,7 +22,15 @@ logger.info("API is starting up")
 logger.info(uvicorn.Config.asgi_version)
 
 current_repo = { "repo": ""}
-local_path = "/Users/nairey3/tmp2"
+
+current_directory = os.getcwd()
+logger.info(f"current dir: {current_directory}")
+
+# Get the parent directory
+parent_dir = os.path.dirname(current_directory)
+
+repo_path = os.path.join(parent_dir, "repo")
+logger.info("local path: "+repo_path)
 
 
 @app.get("/")
@@ -34,13 +42,13 @@ async def root():
 @app.post("/code/init")
 async def root(repo: RepoModel):
     try: 
-        if not os.path.exists(local_path):
-            os.makedirs(local_path)
+        if not os.path.exists(repo_path):
+            os.makedirs(repo_path)
 
         current_repo["repo"] = repo.repo_url
         logger.info("checking out repo: "+repo.repo_url)
 
-        Repo.clone_from(repo.repo_url, local_path) 
+        Repo.clone_from(repo.repo_url, repo_path) 
     except Exception as e:
         logger.error(f"Failed to clone repository. Error: {e}")
         raise HTTPException(
@@ -52,11 +60,11 @@ async def root(repo: RepoModel):
 
 @app.get("/code")
 async def read_item(item: File):
-    logger.info("requested file: "+item.file+" from local dir "+local_path)
-    if os.path.isfile(local_path+os.path.sep + item.file):
+    logger.info("requested file: "+item.file+" from local dir "+repo_path)
+    if os.path.isfile(repo_path+os.path.sep + item.file):
         logger.info("File exists")
 
-        with open(local_path+os.path.sep + item.file, 'r') as file:
+        with open(repo_path+os.path.sep + item.file, 'r') as file:
             file_contents = file.read()
             return Response(content=file_contents, media_type="text/plain")
     else:
@@ -69,10 +77,10 @@ async def read_item(item: File):
 @app.post("/code")
 async def create_code(item: File):
     file_name = "test.py"
-    logger.info("writing file: "+local_path+os.path.sep + file_name)
+    logger.info("writing file: "+repo_path+os.path.sep + file_name)
     logger.info("received contents: "+item.contents)
 
-    with open(local_path+os.path.sep + file_name, 'w') as file:
+    with open(repo_path+os.path.sep + file_name, 'w') as file:
         file.write(item.contents)
 
     return {
