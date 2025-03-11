@@ -16,7 +16,6 @@ app = FastAPI()
 
 logger = logging.getLogger(__name__)
 logger.info("API is starting up")
-logger.info(uvicorn.Config.asgi_version)
 
 current_repo = { "repo": ""}
 
