@@ -109,9 +109,14 @@ async def create_code(item: File):
         if test_match:
             # Replace the existing test with the new content
             logger.info(f"Replacing existing test {test_name}")
+            if contents_dict['code'].endswith('\n\n'):
+                contents_dict['code']+='\n'
+            else:
+                contents_dict['code']+='\n\n\n'
             updated_content = test_pattern.sub(contents_dict['code'], existing_content)
             with open(file_path, 'w') as file:
                 file.write(updated_content)
+
             return {
                 "status": "updated",
                 "file": file_name,
