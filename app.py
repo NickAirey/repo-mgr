@@ -17,7 +17,6 @@ app = FastAPI()
 
 logger = logging.getLogger(__name__)
 logger.info("API is starting up")
-logger.info(uvicorn.Config.asgi_version)
 
 current_repo = { "repo": ""}
 
@@ -219,5 +218,5 @@ async def execute_testcase(request: TestExecutionRequest):
 @app.get('/list')
 async def list_files():
     return {
-        "repo_path": [os.path.join(repo_path,"Job_scheduling.py")],
+        "repo_path": "Job_scheduling.py"
     }
