@@ -60,6 +60,7 @@ async def root(repo: RepoModel):
 
 @app.get("/code")
 async def read_item(item: File):
+    # Get code from repo
     logger.info("requested file: "+item.file+" from local dir "+repo_path)
     if os.path.isfile(repo_path+os.path.sep + item.file):
         logger.info("File exists")
