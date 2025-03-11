@@ -1,3 +1,4 @@
+import json
 import re
 import subprocess
 from fastapi import FastAPI, HTTPException,Response
@@ -7,7 +8,7 @@ import os
 from git import Repo
 
 from utils.models import *
-from utils.utils import extract_output_tags, parse_pytest_output
+from utils.utils import convert_to_dict, extract_output_tags, parse_pytest_output
 
 logging.basicConfig(level=logging.INFO)
 
@@ -78,10 +79,13 @@ async def create_code(item: File):
         raise HTTPException(status_code=400, detail="Both file name and contents are required")
     
     # Extract code json
-    test_case = extract_output_tags(item.contents, 'output')
-    if not test_case:
+    contents_str = extract_output_tags(item.contents, 'output')    
+    if not contents_str:
         raise HTTPException(status_code=400, detail="Payload incorrect - missing <output> code </output>")
-    
+
+    # Extract just the code
+    contents_dict = convert_to_dict(contents_str)
+
     # Extract test name from the contents
     test_name_match = re.search(r'def\s+(test_\w+)', item.contents)
     if not test_name_match:
@@ -106,7 +110,7 @@ async def create_code(item: File):
         if test_match:
             # Replace the existing test with the new content
             logger.info(f"Replacing existing test {test_name}")
-            updated_content = test_pattern.sub(item.contents, existing_content)
+            updated_content = test_pattern.sub(contents_dict['code'], existing_content)
             with open(file_path, 'w') as file:
                 file.write(updated_content)
             return {
@@ -123,7 +127,7 @@ async def create_code(item: File):
                     file.write('\n\n')
                 else:
                     file.write('\n')
-                file.write(item.contents)
+                file.write(contents_dict['code'])
             return {
                 "status": "appended",
                 "file": file_name,
@@ -133,7 +137,7 @@ async def create_code(item: File):
         # Create new file with the test content
         logger.info(f"Creating new file {file_path} with test {test_name}")
         with open(file_path, 'w') as file:
-            file.write(item.contents)
+            file.write(contents_dict['code'])
         return {
             "status": "created",
             "file": file_name,

@@ -1,0 +1,3 @@
+#!/bin/bash
+
+curl -X POST "http://localhost:8000/code" -H "Content-Type: application/json" -d '{"file": "Job_scheduling.py", "contents": "<output>{\n    \"name\": \"simple_test_case\",\n    \"code\": \"def test_scheduling():\n    jobs = [(0, 13, 10), (1, 2, 20), (2, 33, 30), (3, 16, 40)]\n    deadlines = [3, 4, 5]\n    scheduler = Scheduling(jobs)\n    result = scheduler.schedule(3, deadlines)\n    assert result == [(1, 2, 20), (2, 33, 30)], f\\\"Unexpected result: {result}\\\" \"\n}</output>"}'
