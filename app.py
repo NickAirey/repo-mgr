@@ -215,5 +215,5 @@ async def execute_testcase(request: TestExecutionRequest):
 @app.get('/list')
 async def list_files():
     return {
-        "repo_path": [os.path.join(repo_path,"Job_scheduling.py")],
+        "repo_path": "Job_scheduling.py"
     }
