@@ -1,19 +1,16 @@
+import re
+import subprocess
 from fastapi import FastAPI, HTTPException,Response
-from pydantic import BaseModel
 import logging
 import uvicorn
 import os
 from git import Repo
-from typing import Optional
+
+from models import *
+from utils import extract_output_tags, parse_pytest_output
 
 logging.basicConfig(level=logging.INFO)
 
-class File(BaseModel):
-    file: Optional[str] = None
-    contents: Optional[str] = None
-
-class RepoModel(BaseModel):
-    repo_url: str
 
 app = FastAPI()
 
@@ -61,30 +58,154 @@ async def root(repo: RepoModel):
 @app.get("/code")
 async def read_item(item: File):
     # Get code from repo
-    logger.info("requested file: "+item.file+" from local dir "+repo_path)
-    if os.path.isfile(repo_path+os.path.sep + item.file):
+    logger.info("requested file: " + item.file + " from local dir " + repo_path)
+    if os.path.isfile(repo_path + os.path.sep + item.file):
         logger.info("File exists")
 
         with open(repo_path+os.path.sep + item.file, 'r') as file:
             file_contents = file.read()
             return Response(content=file_contents, media_type="text/plain")
     else:
-        logger.error("File does not exist: "+item.file)
+        logger.error("File does not exist: " + item.file)
         raise HTTPException(
             status_code=400,
             detail="file does not exist"
         )
 
-@app.post("/code")
 async def create_code(item: File):
-    file_name = "test.py"
-    logger.info("writing file: "+repo_path+os.path.sep + file_name)
-    logger.info("received contents: "+item.contents)
+    if not item.file or not item.contents:
+        raise HTTPException(status_code=400, detail="Both file name and contents are required")
+    
+    # Extract code json
+    test_case = extract_output_tags(item.contents, 'output')
+    if not test_case:
+        raise HTTPException(status_code=400, detail="Payload incorrect - missing <output> code </output>")
+    
+    # Extract test name from the contents
+    test_name_match = re.search(r'def\s+(test_\w+)', item.contents)
+    if not test_name_match:
+        raise HTTPException(status_code=400, detail="Could not find a test function in the contents")
+    
+    test_name = test_name_match.group(1)
+    file_name = f"test_{item.file}" if not item.file.startswith("test_") else item.file
+    file_path = os.path.join(repo_path, file_name)
+    
+    # Check if the file exists
+    if os.path.exists(file_path):
+        logger.info(f"File {file_path} exists, checking for test {test_name}")
+        
+        # Read existing file content
+        with open(file_path, 'r') as file:
+            existing_content = file.read()
+        
+        # Check if the test already exists in the file
+        test_pattern = re.compile(f'def {test_name}.*?(?=def|\Z)', re.DOTALL)
+        test_match = test_pattern.search(existing_content)
+        
+        if test_match:
+            # Replace the existing test with the new content
+            logger.info(f"Replacing existing test {test_name}")
+            updated_content = test_pattern.sub(item.contents, existing_content)
+            with open(file_path, 'w') as file:
+                file.write(updated_content)
+            return {
+                "status": "updated",
+                "file": file_name,
+                "test": test_name
+            }
+        else:
+            # Append the new test to the file
+            logger.info(f"Appending new test {test_name} to existing file")
+            with open(file_path, 'a') as file:
+                # Add a newline if the file doesn't end with one
+                if existing_content and not existing_content.endswith('\n'):
+                    file.write('\n\n')
+                else:
+                    file.write('\n')
+                file.write(item.contents)
+            return {
+                "status": "appended",
+                "file": file_name,
+                "test": test_name
+            }
+    else:
+        # Create new file with the test content
+        logger.info(f"Creating new file {file_path} with test {test_name}")
+        with open(file_path, 'w') as file:
+            file.write(item.contents)
+        return {
+            "status": "created",
+            "file": file_name,
+            "test": test_name
+        } 
 
-    with open(repo_path+os.path.sep + file_name, 'w') as file:
-        file.write(item.contents)
-
-    return {
-        "writing to": file_name,
-        "received code:": item
-    }
+@app.post("/run-test")
+async def execute_testcase(request: TestExecutionRequest):
+        # Check if file_name is a full path or just a filename
+    if os.path.isabs(request.file_name) or (os.path.sep in request.file_name):
+        # file_name contains path information
+        full_path = request.file_name
+        file_name = os.path.basename(request.file_name)
+        directory = os.path.dirname(request.file_name)
+        
+        # If file_path is also provided, log a warning that it will be ignored
+        if request.file_path:
+            logger.warning(f"Both file_path and full path in file_name provided. Using path from file_name: {directory}")
+    else:
+        # file_name is just a name, use file_path if provided
+        file_name = request.file_name
+        if request.file_path:
+            directory = request.file_path
+        else:
+            directory = repo_path
+        full_path = os.path.join(directory, file_name)
+    
+    # Ensure filename has test_ prefix
+    if not os.path.basename(file_name).startswith("test_"):
+        base_dir = os.path.dirname(full_path)
+        base_name = os.path.basename(full_path)
+        new_name = f"test_{base_name}"
+        full_path = os.path.join(base_dir, new_name)
+        file_name = new_name
+    
+    # Check if the file exists
+    if not os.path.exists(full_path):
+        raise HTTPException(status_code=404, detail=f"Test file not found: {full_path}")
+    
+    try:
+        # Build the pytest command
+        cmd = ["python", "-m", "pytest", full_path, "-v"]
+        
+        # Add specific test names if provided
+        if request.test_names:
+            # Clear the initial file path as we'll specify test functions individually
+            cmd = ["python", "-m", "pytest", "-v"]
+            for test_name in request.test_names:
+                # Format: file_path::test_function_name
+                cmd.append(f"{full_path}::{test_name}")
+        
+        # Execute the pytest command
+        logger.info(f"Executing test command: {' '.join(cmd)}")
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            cwd=os.path.dirname(full_path)  # Run in the directory of the test file
+        )
+        
+        # Parse the output to extract test results
+        test_results = parse_pytest_output(result.stdout)
+        
+        return {
+            "status": "executed",
+            "file": file_name,
+            "full_path": full_path,
+            "returncode": result.returncode,
+            "success": result.returncode == 0,
+            "test_results": test_results,
+            "stdout": result.stdout,
+            "stderr": result.stderr
+        }
+    except Exception as e:
+        logger.error(f"Error executing test file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to execute test: {str(e)}")
