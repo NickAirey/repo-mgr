@@ -6,8 +6,8 @@ import uvicorn
 import os
 from git import Repo
 
-from models import *
-from utils import extract_output_tags, parse_pytest_output
+from utils.models import *
+from utils.utils import extract_output_tags, parse_pytest_output
 
 logging.basicConfig(level=logging.INFO)
 
@@ -72,6 +72,7 @@ async def read_item(item: File):
             detail="file does not exist"
         )
 
+@app.post("/code")
 async def create_code(item: File):
     if not item.file or not item.contents:
         raise HTTPException(status_code=400, detail="Both file name and contents are required")
@@ -99,7 +100,7 @@ async def create_code(item: File):
             existing_content = file.read()
         
         # Check if the test already exists in the file
-        test_pattern = re.compile(f'def {test_name}.*?(?=def|\Z)', re.DOTALL)
+        test_pattern = re.compile(r'def ' + re.escape(test_name) + r'.*?(?=def|\Z)', re.DOTALL)
         test_match = test_pattern.search(existing_content)
         
         if test_match:
@@ -209,3 +210,10 @@ async def execute_testcase(request: TestExecutionRequest):
     except Exception as e:
         logger.error(f"Error executing test file: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to execute test: {str(e)}")
+
+
+@app.get('/list')
+async def list_files():
+    return {
+        "repo_path": [os.path.join(repo_path,"Job_scheduling.py")],
+    }
